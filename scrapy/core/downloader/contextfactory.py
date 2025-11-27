@@ -49,14 +49,20 @@ class ScrapyClientContextFactory(BrowserLikePolicyForHTTPS):
 
     def __init__(
         self,
-        method: int = SSL.SSLv23_METHOD,
+        method: int | None = None,
         tls_verbose_logging: bool = False,
         tls_ciphers: str | None = None,
         *args: Any,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
-        self._ssl_method: int = method
+        # Prefer a modern TLS method when available. Fall back to older
+        # SSLv23_METHOD for compatibility if TLS_METHOD is not present in
+        # the local pyOpenSSL/OpenSSL bindings.
+        if method is None:
+            self._ssl_method: int = getattr(SSL, "TLS_METHOD", getattr(SSL, "SSLv23_METHOD"))
+        else:
+            self._ssl_method: int = method
         self.tls_verbose_logging: bool = tls_verbose_logging
         self.tls_ciphers: AcceptableCiphers
         if tls_ciphers:
@@ -105,7 +111,18 @@ class ScrapyClientContextFactory(BrowserLikePolicyForHTTPS):
     # e.g. connectSSL()
     def getContext(self, hostname: Any = None, port: Any = None) -> SSL.Context:
         ctx: SSL.Context = self.getCertificateOptions().getContext()
-        ctx.set_options(0x4)  # OP_LEGACY_SERVER_CONNECT
+        # Ensure we disable known weak/obsolete protocol versions when the
+        # OpenSSL options are available. Fall back gracefully when a flag
+        # isn't defined in the local OpenSSL build.
+        op_no_tlsv1 = getattr(SSL, "OP_NO_TLSv1", 0)
+        op_no_tlsv1_1 = getattr(SSL, "OP_NO_TLSv1_1", 0)
+        op_no_sslv2 = getattr(SSL, "OP_NO_SSLv2", 0)
+        op_no_sslv3 = getattr(SSL, "OP_NO_SSLv3", 0)
+        # Keep legacy server connect flag if present, but still OR with the
+        # 'no' flags to avoid negotiating old protocols by default.
+        op_legacy = getattr(SSL, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        disable_flags = op_no_tlsv1 | op_no_tlsv1_1 | op_no_sslv2 | op_no_sslv3
+        ctx.set_options(op_legacy | disable_flags)
         return ctx
 
     def creatorForNetloc(self, hostname: bytes, port: int) -> ClientTLSOptions:
