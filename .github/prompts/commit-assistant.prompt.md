@@ -52,8 +52,6 @@ feat(auth): adiciona MFA por TOTP ao fluxo de login
 - persiste secret criptografado e sincroniza janela de tempo
 - atualiza UI com fallback para códigos de recuperação
 - documenta variáveis de ambiente necessárias
-
-Closes #482
 ```
 
 ## ✍️ Exemplo com breaking change (en)
