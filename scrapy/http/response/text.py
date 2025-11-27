@@ -41,14 +41,17 @@ _NONE = object()
 
 class TextResponse(Response):
     _DEFAULT_ENCODING = "ascii"
-    _cached_decoded_json = _NONE
+    # NOTE: per-instance cached decoded JSON is initialized in __init__.
 
     attributes: tuple[str, ...] = (*Response.attributes, "encoding")
 
     def __init__(self, *args: Any, **kwargs: Any):
         self._encoding: str | None = kwargs.pop("encoding", None)
-        self._cached_benc: str | None = None
-        self._cached_ubody: str | None = None
+        # cached inferred body encoding (e.g. 'utf-8') and decoded unicode body
+        self._cached_body_encoding: str | None = None
+        self._cached_unicode_body: str | None = None
+        # per-instance cache for decoded JSON payload
+        self._cached_decoded_json = _NONE
         self._cached_selector: Selector | None = None
         super().__init__(*args, **kwargs)
 
@@ -83,7 +86,9 @@ class TextResponse(Response):
         Deserialize a JSON document to a Python object.
         """
         if self._cached_decoded_json is _NONE:
-            self._cached_decoded_json = json.loads(self.body)
+            # Use decoded text to respect response encoding (BOM, headers, etc.)
+            # `self.text` performs proper encoding detection and decoding.
+            self._cached_decoded_json = json.loads(self.text)
         return self._cached_decoded_json
 
     @property
@@ -92,10 +97,10 @@ class TextResponse(Response):
         # access self.encoding before _cached_ubody to make sure
         # _body_inferred_encoding is called
         benc = self.encoding
-        if self._cached_ubody is None:
+        if self._cached_unicode_body is None:
             charset = f"charset={benc}"
-            self._cached_ubody = html_to_unicode(charset, self.body)[1]
-        return self._cached_ubody
+            self._cached_unicode_body = html_to_unicode(charset, self.body)[1]
+        return self._cached_unicode_body
 
     def urljoin(self, url: str) -> str:
         """Join this Response's url with a possible relative url to form an
@@ -108,7 +113,7 @@ class TextResponse(Response):
         return http_content_type_encoding(to_unicode(content_type, encoding="latin-1"))
 
     def _body_inferred_encoding(self) -> str:
-        if self._cached_benc is None:
+        if self._cached_body_encoding is None:
             content_type = to_unicode(
                 cast("bytes", self.headers.get(b"Content-Type", b"")),
                 encoding="latin-1",
@@ -119,11 +124,15 @@ class TextResponse(Response):
                 auto_detect_fun=self._auto_detect_fun,
                 default_encoding=self._DEFAULT_ENCODING,
             )
-            self._cached_benc = benc
-            self._cached_ubody = ubody
-        return self._cached_benc
+            self._cached_body_encoding = benc
+            self._cached_unicode_body = ubody
+        return self._cached_body_encoding
 
     def _auto_detect_fun(self, text: bytes) -> str | None:
+        """Try a small set of encodings to detect a working one for the body.
+
+        Returns a normalized encoding name or None if detection fails.
+        """
         for enc in (self._DEFAULT_ENCODING, "utf-8", "cp1252"):
             try:
                 text.decode(enc)
@@ -296,6 +305,11 @@ class _InvalidSelector(ValueError):
 
 
 def _url_from_selector(sel: parsel.Selector) -> str:
+    """Extract a URL string from a Selector or raise _InvalidSelector.
+
+    Accepts attribute selectors (string roots) and <a>/<link> elements.
+    Leading/trailing HTML5 whitespace is stripped.
+    """
     if isinstance(sel.root, str):
         # e.g. ::attr(href) result
         return strip_html5_whitespace(sel.root)
