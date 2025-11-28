@@ -17,9 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+AUTHORS = "Scrapy developers"
 project = "Scrapy"
-project_copyright = "Scrapy developers"
-author = "Scrapy developers"
+project_copyright = AUTHORS
+author = AUTHORS
 
 
 # -- General configuration ---------------------------------------------------
@@ -50,6 +51,7 @@ try:
     version = ".".join(map(str, scrapy.version_info[:2]))
     release = scrapy.__version__
 except ImportError:
+    print("WARNING: Could not import scrapy to detect version.", file=sys.stderr)
     version = ""
     release = ""
 
@@ -85,7 +87,7 @@ html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, document class [howto/manual]).
 latex_documents = [
-    ("index", "Scrapy.tex", "Scrapy Documentation", "Scrapy developers", "manual"),
+    ("index", "Scrapy.tex", "Scrapy Documentation", AUTHORS, "manual"),
 ]
 
 
